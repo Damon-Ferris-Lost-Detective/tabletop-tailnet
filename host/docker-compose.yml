@@ -1,0 +1,133 @@
+# Four tabletops, each = one Tailscale sidecar (its own tailnet node) + one Foundry.
+#
+#   ts-<table>       always on. Keeps the node online so it can be shared, and
+#                    terminates HTTPS with a real cert via Tailscale Serve.
+#   foundry-<table>  started/stopped on demand with `tabletop open|close <table>`
+#                    (profile = table name). It shares the sidecar's network
+#                    namespace, so Foundry has NO published ports at all: the
+#                    only way to reach it is through the tailnet.
+#
+# Variables come from /opt/tabletop/.env, written at boot from SSM.
+
+name: tabletop
+
+x-ts: &ts
+  image: tailscale/tailscale:stable
+  restart: unless-stopped
+  environment: &ts-env
+    TS_STATE_DIR: /var/lib/tailscale
+    TS_SERVE_CONFIG: /config/serve.json
+    TS_USERSPACE: "true"
+    TS_AUTH_ONCE: "true"
+    TS_ACCEPT_DNS: "false"
+
+x-foundry: &foundry
+  image: felddy/foundryvtt:${FOUNDRY_TAG:-13}
+  init: true
+  restart: unless-stopped
+  environment: &foundry-env
+    FOUNDRY_USERNAME: ${FOUNDRY_USERNAME}
+    FOUNDRY_PASSWORD: ${FOUNDRY_PASSWORD}
+    FOUNDRY_ADMIN_KEY: ${FOUNDRY_ADMIN_KEY}
+    FOUNDRY_PROXY_SSL: "true"
+    FOUNDRY_PROXY_PORT: "443"
+    FOUNDRY_UPNP: "false"
+    FOUNDRY_MINIFY_STATIC_FILES: "true"
+    TIMEZONE: ${TZ_NAME:-America/Toronto}
+
+services:
+  # ------------------------------ D&D 5e ---------------------------------
+  ts-dnd:
+    <<: *ts
+    container_name: ts-dnd
+    environment:
+      <<: *ts-env
+      TS_HOSTNAME: tt-dnd
+      TS_AUTHKEY: ${TSKEY_DND:-}
+    volumes:
+      - /data/tailscale/dnd:/var/lib/tailscale
+      - ./serve.json:/config/serve.json:ro
+  foundry-dnd:
+    <<: *foundry
+    container_name: foundry-dnd
+    profiles: [dnd]
+    network_mode: service:ts-dnd
+    depends_on: [ts-dnd]
+    environment:
+      <<: *foundry-env
+      FOUNDRY_LICENSE_KEY: ${LICENSE_DND:-}
+      FOUNDRY_HOSTNAME: tt-dnd.${TAILNET_DOMAIN}
+    volumes:
+      - /data/foundry/dnd:/data
+
+  # ----------------------------- Daggerheart -----------------------------
+  ts-daggerheart:
+    <<: *ts
+    container_name: ts-daggerheart
+    environment:
+      <<: *ts-env
+      TS_HOSTNAME: tt-daggerheart
+      TS_AUTHKEY: ${TSKEY_DAGGERHEART:-}
+    volumes:
+      - /data/tailscale/daggerheart:/var/lib/tailscale
+      - ./serve.json:/config/serve.json:ro
+  foundry-daggerheart:
+    <<: *foundry
+    container_name: foundry-daggerheart
+    profiles: [daggerheart]
+    network_mode: service:ts-daggerheart
+    depends_on: [ts-daggerheart]
+    environment:
+      <<: *foundry-env
+      FOUNDRY_LICENSE_KEY: ${LICENSE_DAGGERHEART:-}
+      FOUNDRY_HOSTNAME: tt-daggerheart.${TAILNET_DOMAIN}
+    volumes:
+      - /data/foundry/daggerheart:/data
+
+  # ----------------------------- Pathfinder 2e ---------------------------
+  ts-pf2e:
+    <<: *ts
+    container_name: ts-pf2e
+    environment:
+      <<: *ts-env
+      TS_HOSTNAME: tt-pf2e
+      TS_AUTHKEY: ${TSKEY_PF2E:-}
+    volumes:
+      - /data/tailscale/pf2e:/var/lib/tailscale
+      - ./serve.json:/config/serve.json:ro
+  foundry-pf2e:
+    <<: *foundry
+    container_name: foundry-pf2e
+    profiles: [pf2e]
+    network_mode: service:ts-pf2e
+    depends_on: [ts-pf2e]
+    environment:
+      <<: *foundry-env
+      FOUNDRY_LICENSE_KEY: ${LICENSE_PF2E:-}
+      FOUNDRY_HOSTNAME: tt-pf2e.${TAILNET_DOMAIN}
+    volumes:
+      - /data/foundry/pf2e:/data
+
+  # ----------------------------- Starfinder 2e ---------------------------
+  ts-sf2e:
+    <<: *ts
+    container_name: ts-sf2e
+    environment:
+      <<: *ts-env
+      TS_HOSTNAME: tt-sf2e
+      TS_AUTHKEY: ${TSKEY_SF2E:-}
+    volumes:
+      - /data/tailscale/sf2e:/var/lib/tailscale
+      - ./serve.json:/config/serve.json:ro
+  foundry-sf2e:
+    <<: *foundry
+    container_name: foundry-sf2e
+    profiles: [sf2e]
+    network_mode: service:ts-sf2e
+    depends_on: [ts-sf2e]
+    environment:
+      <<: *foundry-env
+      FOUNDRY_LICENSE_KEY: ${LICENSE_SF2E:-}
+      FOUNDRY_HOSTNAME: tt-sf2e.${TAILNET_DOMAIN}
+    volumes:
+      - /data/foundry/sf2e:/data
