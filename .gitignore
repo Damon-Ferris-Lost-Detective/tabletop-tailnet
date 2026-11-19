@@ -1,0 +1,13 @@
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+.terraform.lock.hcl.bak
+crash.log
+.env
+*.env
+# Real roster with real emails belongs in a private repo:
+access/roster.private.toml
+# Evidence you generate yourself is committed on purpose; scratch is not.
+docs/evidence/*.tmp

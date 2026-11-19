@@ -1,0 +1,27 @@
+# Who may reach which table. This file is the source of truth for rotation:
+# edit it, run `make rotate-plan`, then `make rotate-apply`.
+#
+# Players are NOT invited into the tailnet (that would use one of the 6 free
+# seats). Each player uses their own free Tailscale account, and a table's node
+# is *shared* with them. Shared users do not count toward the tailnet user cap,
+# so the roster can hold any number of people; the GM only ever uses seat #1.
+#
+# Use real emails in a private copy. These are placeholders.
+
+tailnet = "-"          # "-" = the default tailnet of the API key
+
+[tables.dnd]
+node    = "tt-dnd"
+players = ["alice@example.com", "bob@example.com"]
+
+[tables.daggerheart]
+node    = "tt-daggerheart"
+players = ["carol@example.com", "dave@example.com"]
+
+[tables.pf2e]
+node    = "tt-pf2e"
+players = ["erin@example.com", "frank@example.com", "grace@example.com"]
+
+[tables.sf2e]
+node    = "tt-sf2e"
+players = ["heidi@example.com"]

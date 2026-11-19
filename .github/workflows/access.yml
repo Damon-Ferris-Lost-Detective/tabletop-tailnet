@@ -1,0 +1,36 @@
+name: access-rotation
+
+# GitOps for who can reach which table.
+#   pull request touching access/roster.toml -> show the plan in the job log
+#   merge to main                            -> apply it
+# Secrets (repo settings): TS_API_KEY  (user-owned tskey-api-...; expires <= 90 days)
+# Keep the real roster in a PRIVATE repo; the plan output lists email addresses.
+
+on:
+  pull_request:
+    paths: ["access/**"]
+  push:
+    branches: [main]
+    paths: ["access/**"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  rotate:
+    runs-on: ubuntu-latest
+    env:
+      TS_API_KEY: ${{ secrets.TS_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Seat audit (free plan = 6 members)
+        run: python3 access/rotate.py seats
+      - name: Plan
+        run: python3 access/rotate.py plan
+      - name: Apply
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        run: python3 access/rotate.py apply --yes
