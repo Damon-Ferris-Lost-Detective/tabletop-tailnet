@@ -8,12 +8,18 @@ foundry_username  = "your-foundryvtt-username"
 foundry_password  = "change-me"           # no single quotes
 foundry_admin_key = "pick-a-long-passphrase"
 
-# One key = one player-accessible table at a time. Add more keys to run more
-# tables at once. Leave empty to create the infrastructure without opening any.
+# One key = one player-accessible table at a time.
+#
+# SINGLE-LICENSE MODE: put the same key under every table you want to be able to
+# open, then move between them with `sudo tabletop switch <table>`:
 foundry_license_keys = {
-  # pf2e = "AAAA-BBBB-CCCC-DDDD-EEEE-FFFF"
-  # dnd  = "..."
+  # dnd         = "AAAA-BBBB-CCCC-DDDD-EEEE-FFFF"
+  # daggerheart = "AAAA-BBBB-CCCC-DDDD-EEEE-FFFF"
+  # pf2e        = "AAAA-BBBB-CCCC-DDDD-EEEE-FFFF"
+  # sf2e        = "AAAA-BBBB-CCCC-DDDD-EEEE-FFFF"
 }
+# MULTI-LICENSE MODE: use a different key per table to run several at once
+# (and consider t4g.large if all four run together).
 
 # aws_region    = "ca-central-1"
-# instance_type = "t4g.medium"
+# instance_type = "t4g.small"   # enough for one open table; t4g.medium for 2-3

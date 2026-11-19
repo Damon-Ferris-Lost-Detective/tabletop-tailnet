@@ -67,7 +67,19 @@ Rotation workflow:
 4. For players who already accepted and have rotated out, remove the share in the admin console (Machines > node > Share). The tool tells you exactly who and where.
 5. `make seats` confirms the member count is at or below 6. CI runs this on every change (`.github/workflows/access.yml`).
 
-A second rotation lever is operational: `sudo tabletop open|close <table>` turns a table's Foundry on or off. Foundry licenses allow one player-accessible instance per license key, so `open` refuses to start a second table on the same key.
+A second rotation lever is operational: `sudo tabletop open|close|switch <table>` turns a table's Foundry on or off. Foundry licenses allow one player-accessible instance per license key, so `open` refuses to start a second table on the same key.
+
+### Single-license mode (one table open at a time)
+
+If you own one Foundry license, run it this way. The architecture is unchanged; only the settings differ:
+
+1. In `terraform.tfvars`, put the **same key under all four tables**. `tabletop open` looks the license up per table, so a table with no key listed cannot be opened. With the same key everywhere, it refuses to start a second table.
+2. Use a smaller instance: `instance_type = "t4g.small"` (2 GiB). One Foundry process plus four idle sidecars fits; swap is already configured. Check current pricing in the AWS calculator.
+3. Switch campaigns with one command: `sudo tabletop switch pf2e` closes whatever is open, then opens Pathfinder. (`switch` checks that the target has a license before closing anything.)
+4. Closed tables keep their Tailscale node online, so shares and invites keep working. A shared player who visits a closed table gets a gateway error from the node, not a Foundry page.
+5. Stop the instance between sessions; storage is then the only cost.
+
+The alternative is one Foundry instance with four worlds (one node, one URL). It is simpler to run but gives up per-campaign sharing and isolation, which is the core of this demo, so this repo keeps four nodes.
 
 ## 5. Prerequisites and assumptions
 

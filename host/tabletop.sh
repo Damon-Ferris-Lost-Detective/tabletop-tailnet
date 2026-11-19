@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # tabletop: open/close the Foundry tables on this host.
 #   sudo tabletop status
-#   sudo tabletop open  <table>
-#   sudo tabletop close <table>
-#   sudo tabletop logs  <table>
+#   sudo tabletop open   <table>
+#   sudo tabletop close  <table>
+#   sudo tabletop switch <table>   close every other open table, then open this one
+#   sudo tabletop logs   <table>
 #
 # Foundry's license allows ONE player-accessible instance per license key.
 # `open` refuses to start a table whose license is already in use by a running one.
+# With a single license, use `switch` to move between campaigns.
 set -euo pipefail
 
 # shellcheck disable=SC1091
@@ -50,10 +52,22 @@ case "$cmd" in
     docker compose stop "foundry-$t" || true
     echo "Closed $t (node tt-$t stays online so it remains shareable)."
     ;;
+  switch)
+    t="${2:-}"; need_table "$t"
+    [[ -n "$(license_of "$t")" ]] || { echo "No license key stored for '$t'. Add it to foundry_license_keys and re-apply."; exit 1; }
+    for o in $TABLES; do
+      [[ "$o" == "$t" ]] && continue
+      if is_running "$o"; then
+        echo "Closing $o ..."
+        docker compose stop "foundry-$o"
+      fi
+    done
+    "$0" open "$t"
+    ;;
   logs)
     t="${2:-}"; need_table "$t"
     docker logs --tail 100 -f "foundry-$t"
     ;;
   *)
-    echo "usage: tabletop {status|open <table>|close <table>|logs <table>}"; exit 2 ;;
+    echo "usage: tabletop {status|open <table>|close <table>|switch <table>|logs <table>}"; exit 2 ;;
 esac
