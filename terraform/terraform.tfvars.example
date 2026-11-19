@@ -1,0 +1,19 @@
+# Copy to terraform.tfvars (git-ignored) and fill in.
+# Or leave secrets out and export TF_VAR_foundry_password=... etc.
+
+tailnet_domain = "tailXXXX.ts.net"        # Tailscale admin console > DNS
+admin_email    = "you@example.com"        # your Tailscale login
+
+foundry_username  = "your-foundryvtt-username"
+foundry_password  = "change-me"           # no single quotes
+foundry_admin_key = "pick-a-long-passphrase"
+
+# One key = one player-accessible table at a time. Add more keys to run more
+# tables at once. Leave empty to create the infrastructure without opening any.
+foundry_license_keys = {
+  # pf2e = "AAAA-BBBB-CCCC-DDDD-EEEE-FFFF"
+  # dnd  = "..."
+}
+
+# aws_region    = "ca-central-1"
+# instance_type = "t4g.medium"

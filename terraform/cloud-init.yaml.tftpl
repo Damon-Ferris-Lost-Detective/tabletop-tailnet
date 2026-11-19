@@ -1,0 +1,41 @@
+#cloud-config
+# Rendered by Terraform. Everything heavy lives in the files below; secrets are
+# fetched from SSM at boot by the instance role, never embedded here.
+write_files:
+  - path: /etc/tabletop/bootstrap.env
+    permissions: "0644"
+    content: |
+      REGION=${region}
+      NAME=${name}
+      VOLUME_ID=${volume_id}
+      TZ_NAME=${timezone}
+      TAILNET_DOMAIN=${tailnet_domain}
+      TABLES="${tables}"
+      HOST_NAME=${host_name}
+  - path: /opt/tabletop/docker-compose.yml
+    permissions: "0644"
+    encoding: gz+b64
+    content: ${compose_b64}
+  - path: /opt/tabletop/serve.json
+    permissions: "0644"
+    encoding: gz+b64
+    content: ${serve_b64}
+  - path: /usr/local/sbin/tabletop-bootstrap
+    permissions: "0755"
+    encoding: gz+b64
+    content: ${bootstrap_b64}
+  - path: /usr/local/bin/tabletop
+    permissions: "0755"
+    encoding: gz+b64
+    content: ${cli_b64}
+
+package_update: true
+package_upgrade: true
+packages:
+  - ca-certificates
+  - curl
+  - jq
+  - unzip
+
+runcmd:
+  - [ /usr/local/sbin/tabletop-bootstrap ]
