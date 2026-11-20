@@ -187,30 +187,37 @@ This repository was authored with AI assistance and **has not yet been applied t
 
 ## 11. What worked well / what was difficult or surprising / what I'd do differently
 
-> **TODO (yours):** these three subsections are for your real experience after deploying. Don't ship them as-is. Prompts below are things worth confirming or refuting, based on what looked risky while designing.
+**What worked well:** 
+- Establishing the connections between the major platforms, Tailscale, AWS, and Fountry VTT to ensure nothing of value was exposed to the internet and has no inbound rules to complicate matters.
+- Most of the setup was code-based with Terraform, ACL/keys. and one CLI to open and close the game tables.
+- Tailscale was the "easy part" as it facilitates the focal point function that a **Game Master** needs for the game tables.
 
-**What worked well:** _TODO_
-
-**What was difficult or surprising:** _TODO. Candidates to check: (a) the license model forcing "one table open per key"; (b) accepted shares not being revocable via API; (c) whether Tailscale Serve inside a sidecar needed anything beyond `TS_SERVE_CONFIG`; (d) first-boot timing with cloud-init._
+**What was difficult or surprising:** 
+- Foundry VTT's limiting factor of a separate license per table to keep each game table active simultaneously was unfortunate. However, each license is a one-time purchase and a professional **Game Master** could handle the expense easily.
+- Revoking accepted Tailscale shared accounts is manual, not available in the API.
+- Working with AWS proved to be a larger challenge when it came to permissions and node access. I would recommend using another platform like Digital Ocean for future deployments. 
 
 **What I would do differently with more time:**
-- Private subnet + VPC endpoints instead of a public IP with no inbound.
-- Pre-seed Foundry systems/modules from a manifest list so tables are fully automated.
-- Replace the user API key with an OAuth client / workload identity federation for Terraform and CI, keeping the user key only for share invites.
-- Remote Terraform state (S3 + KMS) since SSM values pass through state.
-- Tailscale device posture or approval flows for GM devices; webhooks to alert when a new node or share appears.
-- Scheduled stop/start of the instance around game nights.
-- A Tailscale Kubernetes variant for comparison.
+- The AI suggested a private subnet + VPC endpoints instead of a public IP with no inbound.
+- Pre-seed Foundry systems/modules, and perhaps multiple licenses, from a manifest list so tables are fully automated.
+- Consider Replace the user API key with an OAuth client / workload identity federation for Terraform and CI, keeping the user key only for share invites. This would require live testing with the players to deem if the user experience is easy enough.
+- Webhooks to alert when a new node or share appears.
+- After completion a Tailscale Kubernetes variant for comparison might have yielded a superior experience.
 
 ## 12. AI assistance disclosure
 
-> **TODO (yours):** edit this to be true for you. The assignment asks what you used AI for, what you reviewed or changed, where it helped, and where it was wrong.
-
-- **What I used AI for:** Claude (Anthropic) was used for research of Tailscale sharing/API/ACL behaviour and Foundry licensing, and to draft the Terraform, cloud-init/bootstrap, compose file, `rotate.py`, validation script, CI workflow, and this README.
-- **What the AI checked itself:** compose rendering, shell/JSON/TOML/YAML syntax, `rotate.py` against a mock API (see section 10).
-- **What I reviewed or changed:** _TODO_
-- **Where it was helpful:** _TODO_
-- **Where it was wrong, incomplete or misleading:** _TODO. One example from authoring: an early draft iterated `for_each` over a map containing sensitive values, which Terraform rejects; it was changed to iterate over key names. Add the ones you find._
+AI was heavily used in the creation of this project. I have extremely limited direct experience with all the tools involved outside of understanding the tool's capabilities and how there are typically used to achieve certain results. For example, I know how an internal combustion engine works, but I cold not build or fix one if needed.
+- Claude (Anthropic) was used for research of Tailscale sharing/API/ACL and to draft the Terraform, cloud-init/bootstrap, compose file, `rotate.py`, validation script, CI workflow, and a significant portion this README.
+- The AI checked itself for: compose rendering, shell/JSON/TOML/YAML syntax, `rotate.py` against a mock API (see section 10).
+- I still reviewed the strategies the AI suggested and had to change:
+- - AWS region location due to the free account limitations
+  - Foundry license and user sharing/invitation capabilities
+  - Added in 1Password functions for credential security
+- The AI was wrong, incomplete or misleading in a few ways:
+- - First draft contained sensitive values that Terraform rejected. It was changed to iterate over key names.
+  - Despite being instructed that I was on a Windows machine in Ontario, Canada, I had to instruct it to provide Powershell instructions and update region parameters for AWS more than once.
+  - The AI suggested **EC2 t4g.medium** repeatedly and I corrected it to **EC2 t4g.small** after confirming my free AWS's account capabilities 3 times.
+  - Several times it did not offer a complete instruction. For example, applying the Tailscale API access token was not being drawn from the 1Password CLI and I had to apply it directly. 
 
 ## 13. Repository layout
 
