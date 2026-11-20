@@ -10,7 +10,9 @@ Access rotates without exceeding the free plan's 6 users. Players are not invite
 
 ## 2. Why this use case
 
-The pattern is the same one a customer has when they must give a **changing set of outsiders** (contractors, partners, auditors, a client's team) access to **specific internal applications** and nothing else:
+Providing secure access to Foundry VTT is a challenge when deployed "normally" to the GM's personal device that lacks SSL, opening a attack vector to them, and limits access to only when Foundry is active on the device.
+The practical concern for a business is one of customer when they have a **changing set of external parties** (contractors, partners, auditors, a client's team) that access to **specific internal applications** with limited capability:
+
 
 | Customer problem | Tabletop equivalent |
 |---|---|
