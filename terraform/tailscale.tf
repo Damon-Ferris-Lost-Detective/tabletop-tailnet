@@ -87,7 +87,7 @@ resource "tailscale_tailnet_key" "table" {
 }
 
 resource "tailscale_tailnet_key" "host" {
-  description         = "${var.name} host (Tailscale SSH)"
+  description         = "${var.name} host ssh"
   reusable            = false
   ephemeral           = false
   preauthorized       = true

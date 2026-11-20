@@ -1,0 +1,75 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20261120004910
+Username: NIGHTWINGRIG\damon
+RunAs User: NIGHTWINGRIG\damon
+Configuration Name: 
+Machine: NIGHTWINGRIG (Microsoft Windows NT 10.0.26200.0)
+Host Application: C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe -ExecutionPolicy Bypass -File scripts\validate.ps1
+Process ID: 23620
+PSVersion: 5.1.26100.9818
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.9818
+BuildVersion: 10.0.26100.9818
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+validation run: 2026-11-20 00:49:11Z   tailnet: tail96c8bb.ts.net   region: us-east-2   host public ip: 18.218.190.229
+
+## 1. Nodes are on the tailnet
+  PASS  tt-host online  ip=100.95.233.66  tags=tag:tt-host
+  PASS  tt-dnd online  ip=100.112.68.30  tags=tag:tt-dnd
+  PASS  tt-daggerheart online  ip=100.102.76.6  tags=tag:tt-daggerheart
+  PASS  tt-pf2e online  ip=100.102.39.119  tags=tag:tt-pf2e
+  PASS  tt-sf2e online  ip=100.64.240.116  tags=tag:tt-sf2e
+
+## 2. Traffic path to the host (direct vs relayed)
+        pong from tt-host (100.95.233.66) via DERP(ord) in 201ms
+        pong from tt-host (100.95.233.66) via DERP(ord) in 40ms
+        pong from tt-host (100.95.233.66) via DERP(ord) in 46ms
+        tailscale : direct connection not established
+        At C:\Users\damon\tabletop-tailnet\scripts\validate.ps1:55 char:10
+        + $ping = (tailscale ping --c 3 --timeout 5s tt-host 2>&1 | Out-String)
+        +          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            + CategoryInfo          : NotSpecified: (direct connection not established:String) [], RemoteException
+            + FullyQualifiedErrorId : NativeCommandError
+  FAIL  tailscale ping tt-host failed
+
+## 3. Tables answer over tailnet HTTPS with a valid certificate
+PS>TerminatingError(Invoke-WebRequest): "The remote server returned an error: (502) Bad Gateway."
+  SKIP  dnd  node reachable but Foundry is closed (HTTP 502). Open it: sudo tabletop switch dnd
+PS>TerminatingError(Invoke-WebRequest): "The remote server returned an error: (502) Bad Gateway."
+  SKIP  daggerheart  node reachable but Foundry is closed (HTTP 502). Open it: sudo tabletop switch daggerheart
+  PASS  pf2e  HTTP 200  active=False  version=13.351  world=
+PS>TerminatingError(Invoke-WebRequest): "The remote server returned an error: (502) Bad Gateway."
+  SKIP  sf2e  node reachable but Foundry is closed (HTTP 502). Open it: sudo tabletop switch sf2e
+
+## 4. Nothing is listening on the public internet
+  PASS  public 18.218.190.229:22 is closed/filtered
+  PASS  public 18.218.190.229:80 is closed/filtered
+  PASS  public 18.218.190.229:443 is closed/filtered
+  PASS  public 18.218.190.229:30000 is closed/filtered
+  PASS  security group sg-0473afe34ebe6c938 has 0 inbound rules
+
+## 5. Admin path: Tailscale SSH (no key, no open port 22)
+  PASS  ssh ubuntu@tt-host worked
+        ip-10-42-0-31
+        TABLE        LICENSE   FOUNDRY   URL
+        daggerheart  set       closed    https://tt-daggerheart.tail96c8bb.ts.net
+        dnd          set       closed    https://tt-dnd.tail96c8bb.ts.net
+        pf2e         set       open      https://tt-pf2e.tail96c8bb.ts.net
+        sf2e         set       closed    https://tt-sf2e.tail96c8bb.ts.net
+
+## 6. Blast radius: a compromised table cannot reach another table
+  PASS  tt-dnd cannot reach tt-pf2e (100.102.39.119)
+        ssh : no matching peer
+        At C:\Users\damon\tabletop-tailnet\scripts\validate.ps1:98 char:9
+        +   $o = (ssh -o ConnectTimeout=10 ubuntu@tt-host $remote 2>&1 | Out-St ...
+
+== 13 passed, 1 failed, 3 skipped ==  (saved to C:\Users\damon\tabletop-tailnet\docs\evidence\validation-20261120T004910.txt)
+**********************
+Windows PowerShell transcript end
+End time: 20261120004930
+**********************
