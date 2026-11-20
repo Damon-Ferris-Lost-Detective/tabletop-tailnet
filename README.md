@@ -1,232 +1,192 @@
 # Tabletop Tailnet: four Foundry VTT game tables behind Tailscale, on AWS
 
-**Tailnet name:** `TODO-your-tailnet.ts.net`  &nbsp;|&nbsp; **Region:** `ca-central-1` &nbsp;|&nbsp; **Status:** see [Honest status](#honest-status-read-this-first)
+**Tailnet:** `tail96c8bb.ts.net` | **Region:** `us-east-2` | **Instance:** `t4g.small` | **Status:** see [Honest status](#10-honest-status)
 
 ## 1. What I built
 
-Four independent virtual tabletops (D&D 5e, Daggerheart, Pathfinder 2e, Starfinder 2e) running on a single small AWS instance. **Nothing is reachable from the public internet**: the security group has zero inbound rules, and every table is its own Tailscale node with its own HTTPS certificate and its own ACL tag.
+Four independent virtual tabletops (D&D 5e, Daggerheart, Pathfinder 2e, Starfinder 2e) on one small AWS instance. **Nothing is reachable from the public internet**: the security group has zero inbound rules, and each table is its own Tailscale node with its own HTTPS certificate and ACL tag.
 
-Access rotates without exceeding the free plan's 6 users. Players are not invited into the tailnet. They use their own free Tailscale accounts and a table's node is *shared* with them. A roster file (`access/roster.toml`) is the source of truth for who can reach which table, and a small tool (`access/rotate.py`, also run from CI) reconciles it.
+Access rotates without exceeding the free plan's 6 users. Players are not invited into the tailnet. They use their own free Tailscale accounts, and a table's node is *shared* with them. `access/roster.toml` is the source of truth for who can reach which table, and `access/rotate.py` (also run from CI) reconciles it.
 
 ## 2. Why this use case
 
-Providing secure access to Foundry VTT is a challenge when deployed "normally" to the GM's personal device that lacks SSL, opening a attack vector to them, and limits access to only when Foundry is active on the device.
-The practical concern for a business is one of customer when they have a **changing set of external parties** (contractors, partners, auditors, a client's team) that access to **specific internal applications** with limited capability:
-
+Foundry VTT is usually run on the GM's own device, which lacks SSL, exposes the GM to attack, and is only reachable while the device is on. The business version of the problem is a **changing set of external parties** (contractors, partners, auditors, a client's team) who need **specific internal applications** with limited capability:
 
 | Customer problem | Tabletop equivalent |
 |---|---|
-| Expose an internal app without opening ports or running a bastion | Foundry has no public port; security group has no inbound rules |
-| Per-seat licensing means external collaborators are expensive or slow to onboard | Free plan caps at 6 users; shared nodes don't consume seats |
+| Expose an internal app without opening ports or running a bastion | No public port; security group has no inbound rules |
+| Per-seat licensing makes outside collaborators costly or slow to onboard | Free plan caps at 6 users; shared nodes don't consume seats |
 | Different outsiders need different apps | Different players need different campaigns |
 | Access must expire and be auditable | Roster in git, plan/apply in CI, ACL tests on every change |
 | A compromised app must not become a foothold | Per-app tags, no tag-to-tag rules |
 
-It is small enough to explain in a minute and real enough that I will actually use it.
+It is small enough to explain quickly and real enough that I will actually use it.
 
 ## 3. Architecture
 
-Full diagrams and the layered-controls table are in [`docs/architecture.md`](docs/architecture.md). In short:
+Full diagrams and the layered-controls table: [`docs/architecture.md`](docs/architecture.md).
 
 ```
-Player (own tailnet) ──shared node──┐
-GM (owner) ─────────────────────────┤  WireGuard (direct, DERP fallback)
-                                    ▼
- EC2 t4g.medium, SG: 0 inbound  ┌──────────────────────────────────────────┐
-                                │ ts-pf2e  (tag:tt-pf2e)  Serve :443 TLS   │
-                                │    └─ foundry-pf2e  127.0.0.1:30000       │  x4 tables
-                                │ tailscaled (tag:tt-host)  Tailscale SSH   │
-                                └──────────────────────────────────────────┘
+Player (own tailnet) --shared node--+
+GM (owner) -------------------------+  WireGuard (direct, DERP fallback)
+                                    v
+ EC2 t4g.small, SG: 0 inbound   ts-pf2e (tag:tt-pf2e)  Serve :443 TLS
+                                  +- foundry-pf2e 127.0.0.1:30000       x4 tables
+                                tailscaled (tag:tt-host)  Tailscale SSH
                                 EBS /data (encrypted, daily snapshots)   SSM (secrets)
 ```
 
-Key choices, each with the trade-off:
+Key choices and trade-offs:
 
-- **One Tailscale node per table (sidecar container), not one node for the host.** Sharing is node-to-person. Four campaigns with different players need four nodes. Cost: four tiny `tailscaled` processes; benefit: per-campaign sharing and per-campaign blast radius.
-- **Foundry shares the sidecar's network namespace** (`network_mode: service:ts-x`) and publishes no ports. Cost: if the sidecar restarts, Foundry must too (compose handles this); benefit: no accidental host exposure, and Docker cannot bypass a firewall that doesn't exist.
-- **Tailscale Serve for HTTPS.** Foundry's audio/video needs a secure context, and Serve gives a real certificate for `*.ts.net` with no reverse proxy or certbot.
-- **Userspace networking in the sidecars.** No `NET_ADMIN`, no `/dev/net/tun`, less privilege. Throughput is plenty for map images and websockets.
-- **Public subnet, no NAT gateway.** A NAT gateway costs more per month than the instance. With zero inbound rules the public IP is egress-only. With more time I would use a private subnet plus VPC endpoints.
-- **Secrets in SSM Parameter Store**, read by the instance role at boot, instead of user-data (which is readable from the console).
+- **One Tailscale node per table (sidecar), not one for the host.** Sharing is node-to-person, so four campaigns with different players need four nodes. Cost: four tiny `tailscaled` processes. Benefit: per-campaign sharing and blast radius.
+- **Foundry shares the sidecar's network namespace** and publishes no ports. If the sidecar restarts, Foundry must too (compose handles it). No accidental host exposure.
+- **Tailscale Serve for HTTPS.** Foundry's audio/video needs a secure context. Serve gives a real `*.ts.net` certificate with no reverse proxy or certbot.
+- **Userspace networking in the sidecars.** No `NET_ADMIN` or `/dev/net/tun`, so less privilege. Throughput is plenty for maps and websockets.
+- **Public subnet, no NAT gateway.** A NAT gateway costs more than the instance, and with zero inbound rules the public IP is egress-only. A private subnet plus VPC endpoints would be better.
+- **Secrets in SSM Parameter Store**, read by the instance role at boot, not in user-data (readable from the console).
 - **State on a separate EBS volume**, so the instance is disposable (`user_data_replace_on_change`) and node identities survive.
-- **Tagged auth keys.** Nodes are owned by tags, not people, so they never need a human to re-authenticate and their keys don't expire.
+- **Tagged auth keys.** Nodes are owned by tags, not people, so they never need re-authentication and their keys don't expire.
 
 ## 4. The 6-seat rotation model
 
-| | Invite user into tailnet | **Share a node (used here)** |
-|---|---|---|
-| Uses one of the 6 free seats | Yes | **No** |
-| Sees the whole tailnet (limited by ACL) | Yes | **Only that node** |
-| Player needs a Tailscale account | Yes (in your tailnet) | Yes (their own, free) |
-| Per-person ACL rules | Yes | No (one `autogroup:shared` rule for everyone shared) |
-| Per-person revoke via API | n/a | Cancel *pending* invites yes; **accepted shares: console** (see limitation) |
+I **share a node** instead of inviting users into the tailnet. A shared player uses no seat, sees only that node, and needs their own free Tailscale account. The trade-off is that per-person ACL rules aren't possible (one `autogroup:shared` rule covers everyone shared), and pending invites can be cancelled by API but **accepted shares must be revoked in the console**.
 
-Rotation workflow:
-
-1. Edit `access/roster.toml` (add/remove an email under a table).
-2. `make rotate-plan` shows `INVITE`, `CANCEL`, and `REVOKE MANUALLY` lines.
+1. Edit `access/roster.toml` (add or remove an email under a table).
+2. `make rotate-plan` shows `INVITE`, `CANCEL` and `REVOKE MANUALLY` lines.
 3. `make rotate-apply` sends invites and cancels stale pending ones.
-4. For players who already accepted and have rotated out, remove the share in the admin console (Machines > node > Share). The tool tells you exactly who and where.
-5. `make seats` confirms the member count is at or below 6. CI runs this on every change (`.github/workflows/access.yml`).
+4. For rotated-out players who already accepted, remove the share in the admin console (Machines > node > Share). The tool says who and where.
+5. `make seats` confirms the member count is 6 or fewer. CI runs this on every change (`.github/workflows/access.yml`).
 
-A second rotation lever is operational: `sudo tabletop open|close|switch <table>` turns a table's Foundry on or off. Foundry licenses allow one player-accessible instance per license key, so `open` refuses to start a second table on the same key.
+A second lever is operational: `sudo tabletop open|close|switch <table>`. **One Foundry license means one player-accessible table at a time**, and `open` refuses to start a second table on the same key. For single-license mode:
 
-### Single-license mode (one table open at a time)
-
-If you own one Foundry license, run it this way. The architecture is unchanged; only the settings differ:
-
-1. In `terraform.tfvars`, put the **same key under all four tables**. `tabletop open` looks the license up per table, so a table with no key listed cannot be opened. With the same key everywhere, it refuses to start a second table.
-2. Use a smaller instance: `instance_type = "t4g.small"` (2 GiB). One Foundry process plus four idle sidecars fits; swap is already configured. Check current pricing in the AWS calculator.
-3. Switch campaigns with one command: `sudo tabletop switch pf2e` closes whatever is open, then opens Pathfinder. (`switch` checks that the target has a license before closing anything.)
-4. Closed tables keep their Tailscale node online, so shares and invites keep working. A shared player who visits a closed table gets a gateway error from the node, not a Foundry page.
+1. Put the **same key under all four tables** in `terraform.tfvars`.
+2. Use `instance_type = "t4g.small"` (2 GiB). One Foundry process plus four idle sidecars fits.
+3. Switch campaigns with `sudo tabletop switch pf2e`, which checks the target has a license before closing anything.
+4. Closed tables keep their Tailscale node online, so shares keep working. A player visiting a closed table gets a gateway error (502), not a Foundry page.
 5. Stop the instance between sessions; storage is then the only cost.
 
-The alternative is one Foundry instance with four worlds (one node, one URL). It is simpler to run but gives up per-campaign sharing and isolation, which is the core of this demo, so this repo keeps four nodes.
+The alternative, one Foundry instance with four worlds, is simpler but gives up per-campaign sharing and isolation, which is the point of this demo.
 
-## 5. Prerequisites and assumptions
+## 5. Prerequisites
 
-- AWS account and credentials (`aws configure` or SSO), Terraform or OpenTofu >= 1.5, Python 3.11+, Docker (only for the offline checks).
-- A Tailscale account on the **Personal (free)** plan. Personal is for non-commercial use, which is true of a home game.
-- In the Tailscale admin console > DNS: **MagicDNS on** and **HTTPS Certificates enabled** (Serve needs both).
-- A Tailscale API key (`tskey-api-...`, expires in <= 90 days) exported as `TAILSCALE_API_KEY` for Terraform and `TS_API_KEY` for `rotate.py`. I used one user-owned key for both because creating *share invites* needs a user-owned credential. OAuth clients are the better choice for Terraform alone.
-- A foundryvtt.com account with at least one license. **One key = one table open at a time**; four simultaneously accessible tables need four keys. Confirm current terms at foundryvtt.com/article/license.
-- Foundry systems are installed from Foundry's own setup screen (the one manual step, see below). Image tag is pinned to Foundry `13` by default; check each system's compatibility before moving to 14.
+- AWS credentials, Terraform or OpenTofu >= 1.5, Python 3.11+.
+- Tailscale **Personal (free)** plan (non-commercial use). In the admin console > DNS, turn on **MagicDNS** and **HTTPS Certificates**.
+- A Tailscale API key (`tskey-api-...`, 90 days max) as `TAILSCALE_API_KEY` for Terraform and `TS_API_KEY` for `rotate.py`. One user-owned key serves both because creating *share invites* needs a user-owned credential. OAuth clients are better for Terraform alone.
+- A foundryvtt.com account with at least one license. **One key = one table open at a time**; four simultaneous tables need four keys. Check current terms at foundryvtt.com/article/license.
+- Foundry systems are installed from Foundry's setup screen. The image tag is pinned to Foundry `13`; check each system's compatibility before moving to 14.
 
 ## 6. Deploy
 
 ```bash
 cd terraform
 cp terraform.tfvars.example terraform.tfvars      # fill in; git-ignored
-export TAILSCALE_API_KEY=tskey-api-...            # the provider reads these
+export TAILSCALE_API_KEY=tskey-api-...
 export TAILSCALE_TAILNET=-                        # "-" = key's default tailnet
 cd .. && make init && make plan && make apply
 ```
 
-`apply` does, in order: ACL + policy tests -> one tagged auth key per node -> VPC, SG (no inbound), IAM, SSM parameters -> encrypted data volume + daily snapshots -> EC2 instance whose cloud-init installs Docker/Tailscale/AWS CLI, mounts the data volume, pulls secrets, joins the tailnet, and starts the four sidecars.
-
-Then:
+`apply` creates, in order: ACL plus policy tests, one tagged auth key per node, VPC, security group (no inbound), IAM and SSM parameters, an encrypted data volume with daily snapshots, and an EC2 instance whose cloud-init installs Docker, Tailscale and the AWS CLI, mounts the volume, pulls secrets, joins the tailnet and starts the sidecars. On Windows, use PowerShell and `scripts\validate.ps1`.
 
 ```bash
-make ssh                                  # tailscale ssh ubuntu@tt-host (no keys, no port 22)
+make ssh                       # tailscale ssh ubuntu@tt-host (no keys, no port 22)
 sudo tabletop status
-sudo tabletop open pf2e                   # needs a license key for that table
+sudo tabletop open pf2e        # needs a license key for that table
 ```
 
-**First run of each table (manual, one time):** open `https://tt-<table>.<tailnet>.ts.net`, accept the Foundry EULA, enter the admin key, then in *Setup > Game Systems > Install System*:
+**First run of each table (manual, once):** open `https://tt-<table>.<tailnet>.ts.net`, accept the EULA, enter the admin key, then install the system under *Setup > Game Systems*:
 
 | Table | System | How |
 |---|---|---|
-| `dnd` | Dungeons & Dragons Fifth Edition (`dnd5e`) | search in the installer |
+| `dnd` | Dungeons & Dragons Fifth Edition | search "dnd5e" |
 | `daggerheart` | Foundryborne Daggerheart | search "Foundryborne", or manifest `https://raw.githubusercontent.com/Foundryborne/daggerheart/refs/heads/main/system.json` |
 | `pf2e` | Pathfinder Second Edition | search in the installer |
-| `sf2e` | Starfinder Second Edition | search in the installer (published at foundryvtt.com/packages/sf2e) |
+| `sf2e` | Starfinder Second Edition | search in the installer |
 
-Automating this (for example by pre-seeding each `/data/foundry/<table>/Data/systems`) is on the "more time" list.
-
-Add players: put their emails in `roster.toml`, then `make rotate-apply`. They accept the emailed invite from their own Tailscale account and open the table URL.
-
-Tear down: `make destroy` (the data volume has `prevent_destroy`; remove that block deliberately if you really want it gone).
+Add players: put their emails in `roster.toml`, then `make rotate-apply`. They accept the emailed invite from their own Tailscale account and open the table URL. Tear down with `make destroy` (the data volume has `prevent_destroy`).
 
 ## 7. Validate
 
-```bash
-make validate     # writes docs/evidence/validation-<timestamp>.txt
-```
+`make validate` (or `scripts\validate.ps1`) writes `docs/evidence/validation-<timestamp>.txt`. It checks:
 
-| # | Check | Expected |
-|---|---|---|
-| 1 | All five nodes online with their tags | `tt-host`, `tt-dnd`, `tt-daggerheart`, `tt-pf2e`, `tt-sf2e` |
-| 2 | `tailscale ping tt-host` | answers; shows direct path or DERP region |
-| 3 | `curl https://tt-<table>.<tailnet>/api/status` per table | 200 with Foundry's version (SKIP, not FAIL, if the table is closed) |
-| 4 | Public ports 22/80/443/30000 on the instance's public IP; SG ingress count | all closed; 0 inbound rules |
-| 5 | `tailscale ssh ubuntu@tt-host` | works with no keys |
-| 6 | From inside `ts-dnd`, ping `tt-pf2e` | **fails** (isolation) |
-| 7 | ACL `tests` block | evaluated on every `terraform apply`; failing test blocks the change |
-| 8 | `make rotate-plan` before/after editing the roster; second account opens a shared table | plan converges; shared player reaches only their table |
+1. All five nodes are online with their tags.
+2. `tailscale ping tt-host` answers, showing a direct path or DERP region.
+3. Each table's `/api/status` returns 200 over HTTPS (SKIP if the table is closed).
+4. Public ports 22, 80, 443 and 30000 are closed, and the security group has 0 inbound rules.
+5. `tailscale ssh ubuntu@tt-host` works with no keys.
+6. A table cannot reach another table (isolation).
+7. ACL `tests` run on every `terraform apply`; a failing test blocks the change.
+8. A second account opens a shared table and reaches only that table.
 
 Evidence checklist: [`docs/evidence/README.md`](docs/evidence/README.md).
 
 ## 8. Why Tailscale vs. the traditional options
 
-| Approach | What it takes | Where it hurts for this use case |
+| Approach | What it takes | Where it hurts here |
 |---|---|---|
-| **Port-forward / public IP + reverse proxy** | Open 443, TLS certs, rate limiting, auth in front of Foundry | Foundry's login is a shared-ish world password; every scanner on the internet can reach it |
-| **Bastion host** | Open 22, manage keys, tunnel each app | Per-person keys to rotate; players are not engineers; no per-app scoping |
-| **Traditional VPN (OpenVPN/WireGuard concentrator)** | Run a gateway, issue configs, route/DNS setup | A listening port, hand-managed peers, all-or-nothing network access, someone is on call for it |
-| **Cloud security-group allow-lists** | Collect each player's IP | Home IPs change; mobile/travel breaks; manual edits |
+| Public IP + reverse proxy | Open 443, certs, rate limiting, auth in front of Foundry | Foundry's login is a shared-ish world password, and every scanner can reach it |
+| Bastion host | Open 22, manage keys, tunnel each app | Per-person keys to rotate; players aren't engineers; no per-app scoping |
+| Traditional VPN | Run a gateway, issue configs, set up routes and DNS | A listening port, hand-managed peers, all-or-nothing access, someone on call |
+| Security-group allow-lists | Collect each player's IP | Home IPs change; travel and mobile break; manual edits |
 | **Tailscale (this repo)** | Install the client; share a node | Identity-based, no inbound ports, per-app ACLs as code, per-person sharing, direct paths with encrypted relay fallback |
 
-How I would explain it to someone new: *"Your service has no public address at all. People get to it through an encrypted private path that only exists for the specific person and the specific service you chose, and you can see and change that list in a file."*
+To someone new: *"Your service has no public address at all. People reach it through an encrypted private path that exists only for the person and service you chose, and you can see and change that list in a file."*
 
-## 9. Cost (estimates, verify before committing)
+## 9. Cost (estimates; verify before committing)
 
-Rough monthly figures for ca-central-1; check the AWS pricing calculator: t4g.medium on-demand roughly mid-$20s USD if left running 24/7, plus about $4-5 for ~46 GB of gp3 and a little for snapshots. Stopping the instance between sessions leaves only storage costs. Tailscale and the sidecars are free; Foundry licenses are a one-time purchase each.
+Check the AWS pricing calculator. `t4g.small` is cheap but not free-tier-exempt for long, plus roughly $4 to $5 a month for about 46 GB of gp3 and a little for snapshots. Stopping the instance between sessions leaves only storage. Tailscale and the sidecars are free, and Foundry licenses are one-time purchases.
 
-## 10. Honest status (read this first)
+## 10. Honest status
 
-This repository was authored with AI assistance and **has not yet been applied to a real AWS account or Tailscale tailnet**. What was verified offline, and what was not:
+Deployed to a real AWS account and tailnet, and validated on 2026-11-20 (`docs/evidence/`): **13 passed, 1 failed, 3 skipped.**
 
-| Verified here | How |
+| Result | Detail |
 |---|---|
-| `host/docker-compose.yml` renders; only the four sidecars start by default; each Foundry service attaches to its sidecar and picks up its own license and hostname | `docker compose config` with a dummy `.env` |
-| SSM-to-`.env` transform and the `tabletop` CLI's key extraction | run against sample JSON |
-| `rotate.py` plan / apply / seats / validation logic | exercised end-to-end against a **mock** Tailscale API (not the real one) |
-| Shell syntax, JSON, TOML, YAML | `bash -n`, parsers |
+| Proven | Five nodes online and tagged; Pathfinder 2e table live over HTTPS (Foundry 13.351); no public ports and 0 inbound rules; Tailscale SSH; table-to-table isolation (`no matching peer`); a friend on their own Tailscale account reached the shared table |
+| The 1 failure | A bug in `validate.ps1`: it marks `tailscale ping` as failed when pongs arrive only via a DERP relay. The network worked |
+| The 3 skips | `dnd`, `daggerheart` and `sf2e` are intentionally closed (HTTP 502) |
+| Not verified | `rotate.py` against the live Tailscale API (only a mock); that accepted shares can't be revoked by API (from third-party docs); the other three tables never set up; why the path was relayed (DERP) rather than direct |
 
-| **Not** verified | Risk |
-|---|---|
-| `terraform validate/plan/apply` | Terraform/OpenTofu were not available; HCL was reviewed by hand only |
-| Tailscale provider resource names | I used `tailscale_tailnet_key`; newer provider docs mention `tailscale_key`. Rename if `init`/`plan` complains |
-| Real Tailscale API response shapes for device invites | Written from the public API docs; field names (`acceptedBy.loginName`, `invites` envelope) may need adjusting |
-| That an accepted share cannot be revoked by API | From third-party client docs; check https://tailscale.com/api |
-| Shared-node MagicDNS name resolving in a player's tailnet (`tt-x.<owner-tailnet>.ts.net`) | Expected from Tailscale's sharing docs; confirm with a real second account |
-| felddy image data-dir ownership (`uid 421`) | Assumed default; adjust `bootstrap.sh` if Foundry cannot write `/data` |
-| Foundry + system version compatibility on tag `13` | Check each system's compatibility page |
+## 11. Reflection
 
-**Before submitting:** deploy, run `make validate`, commit the evidence, and replace the TODOs below with what actually happened.
+**What worked well:**
+- Connecting Tailscale, AWS and Foundry VTT so nothing of value is exposed to the internet, with no inbound rules to manage.
+- Most of the setup is code: Terraform for ACL, keys and cloud, and one CLI to open and close tables.
+- Tailscale was the "easy part". It provides the focal function a **Game Master** needs for the tables.
 
-## 11. What worked well / what was difficult or surprising / what I'd do differently
-
-**What worked well:** 
-- Establishing the connections between the major platforms, Tailscale, AWS, and Fountry VTT to ensure nothing of value was exposed to the internet and has no inbound rules to complicate matters.
-- Most of the setup was code-based with Terraform, ACL/keys. and one CLI to open and close the game tables.
-- Tailscale was the "easy part" as it facilitates the focal point function that a **Game Master** needs for the game tables.
-
-**What was difficult or surprising:** 
-- Foundry VTT's limiting factor of a separate license per table to keep each game table active simultaneously was unfortunate. However, each license is a one-time purchase and a professional **Game Master** could handle the expense easily.
-- Revoking accepted Tailscale shared accounts is manual, not available in the API.
-- Working with AWS proved to be a larger challenge when it came to permissions and node access. I would recommend using another platform like Digital Ocean for future deployments. 
+**What was difficult or surprising:**
+- Foundry needs a separate license per table to run tables simultaneously. Each is a one-time purchase that a professional **Game Master** could easily afford.
+- Revoking accepted Tailscale shares is manual, not available in the API.
+- AWS permissions and node access were the bigger challenge. I would suggest a platform like DigitalOcean for future deployments.
 
 **What I would do differently with more time:**
-- The AI suggested a private subnet + VPC endpoints instead of a public IP with no inbound.
-- Pre-seed Foundry systems/modules, and perhaps multiple licenses, from a manifest list so tables are fully automated.
-- Consider Replace the user API key with an OAuth client / workload identity federation for Terraform and CI, keeping the user key only for share invites. This would require live testing with the players to deem if the user experience is easy enough.
-- Webhooks to alert when a new node or share appears.
-- After completion a Tailscale Kubernetes variant for comparison might have yielded a superior experience.
+- Use a private subnet with VPC endpoints instead of a public IP with no inbound rules (the AI's suggestion).
+- Pre-seed Foundry systems and modules from a manifest, and perhaps use multiple licenses, to fully automate tables.
+- Replace the user API key with an OAuth client or workload identity federation for Terraform and CI, keeping the user key only for share invites. This needs live testing with players to confirm the experience is easy.
+- Add webhooks that alert when a new node or share appears.
+- Build a Tailscale Kubernetes variant for comparison.
 
 ## 12. AI assistance disclosure
 
-AI was heavily used in the creation of this project. I have extremely limited direct experience with all the tools involved outside of understanding the tool's capabilities and how there are typically used to achieve certain results. For example, I know how an internal combustion engine works, but I cold not build or fix one if needed.
-- Claude (Anthropic) was used for research of Tailscale sharing/API/ACL and to draft the Terraform, cloud-init/bootstrap, compose file, `rotate.py`, validation script, CI workflow, and a significant portion this README.
-- The AI checked itself for: compose rendering, shell/JSON/TOML/YAML syntax, `rotate.py` against a mock API (see section 10).
-- I still reviewed the strategies the AI suggested and had to change:
-- - AWS region location due to the free account limitations
-  - Foundry license and user sharing/invitation capabilities
-  - Added in 1Password functions for credential security
-- The AI was wrong, incomplete or misleading in a few ways:
-- - First draft contained sensitive values that Terraform rejected. It was changed to iterate over key names.
-  - Despite being instructed that I was on a Windows machine in Ontario, Canada, I had to instruct it to provide Powershell instructions and update region parameters for AWS more than once.
-  - The AI suggested **EC2 t4g.medium** repeatedly and I corrected it to **EC2 t4g.small** after confirming my free AWS's account capabilities 3 times.
-  - Several times it did not offer a complete instruction. For example, applying the Tailscale API access token was not being drawn from the 1Password CLI and I had to apply it directly. 
+AI was heavily used. I have very limited direct experience with these tools beyond understanding what they do and how they're typically used. I know how an internal combustion engine works, but I could not build or fix one.
+
+- **Claude (Anthropic)** researched Tailscale sharing, API and ACLs, and drafted the Terraform, cloud-init and bootstrap, compose file, `rotate.py`, validation scripts, CI workflow and much of this README.
+- **The AI checked itself** with compose rendering, shell, JSON, TOML and YAML syntax, and `rotate.py` against a mock API.
+- **I reviewed and changed:** the AWS region (free account limits); Foundry license and sharing capabilities; and added 1Password for credential security.
+- **The AI was wrong or incomplete:**
+  - The first draft put sensitive values where Terraform rejected them; it was changed to iterate over key names.
+  - Despite being told I was on Windows in Ontario, I had to ask for PowerShell instructions and corrected region settings more than once.
+  - It repeatedly suggested `t4g.medium`; I corrected it to `t4g.small` after confirming my account's limits three times.
+  - Several instructions were incomplete. For example, the Tailscale API token was not drawn from the 1Password CLI and I had to apply it directly.
+  - It guessed the Foundry container user ID wrong (421, actually 1000), which caused a permissions error.
 
 ## 13. Repository layout
 
 ```
-terraform/        AWS + Tailscale (ACL with tests, tagged keys, VPC, IAM, SSM, EBS, DLM, EC2)
-host/             docker-compose (4 sidecars + 4 Foundry), serve.json, bootstrap.sh, tabletop CLI
-access/           roster.toml and rotate.py (share reconciliation + seat audit)
-scripts/          validate.sh
-docs/             architecture.md, evidence/
-.github/          access-rotation workflow
-Makefile          init/plan/apply/validate/rotate-plan/rotate-apply/seats/ssh/check
+terraform/   AWS + Tailscale (ACL with tests, tagged keys, VPC, IAM, SSM, EBS, DLM, EC2)
+host/        docker-compose (4 sidecars + 4 Foundry), serve.json, bootstrap.sh, tabletop CLI
+access/      roster.toml and rotate.py (share reconciliation + seat audit)
+scripts/     validate.sh, validate.ps1
+docs/        architecture.md, evidence/
+.github/     access-rotation workflow
+Makefile     init/plan/apply/validate/rotate-plan/rotate-apply/seats/ssh/check
 ```
